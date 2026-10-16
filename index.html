@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2e7d32">
+<link rel="manifest" href="manifest.json">
+<title>Farm Manager</title>
+<style>
+body{margin:0;font-family:system-ui,sans-serif;background:#f4f6f1;color:#222;padding-bottom:70px}
+header{background:#2e7d32;color:#fff;padding:14px 16px;font-weight:600}
+main{padding:14px}
+.card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px #0002}
+input,select,button{width:100%;box-sizing:border-box;padding:12px;margin:5px 0;font-size:16px;border:1px solid #ccc;border-radius:8px}
+button{background:#2e7d32;color:#fff;border:0;font-weight:600}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ddd}
+nav button{background:none;color:#555;border:0;border-radius:0;margin:0;padding:16px 4px}
+nav button.on{color:#2e7d32;border-top:3px solid #2e7d32}
+.big{font-size:28px;font-weight:700}.pos{color:#2e7d32}.neg{color:#c62828}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0}
+.hide{display:none}small{color:#666}.x{color:#c62828;padding:6px}
+</style></head><body>
+<header>🌾 Farm Manager</header>
+<main id="app"></main>
+<nav id="nav" class="hide">
+<button data-t="home">Home</button><button data-t="farm">Farm</button><button data-t="add">Add</button><button id="out">Exit</button>
+</nav>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {initializeFirestore,persistentLocalCache,collection,doc,getDoc,setDoc,getDocs,deleteDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const cfg={
+  apiKey:"AIzaSyCfTYGe8FCBcHpoTV9rb0s_mBAX_nUz-qE",
+  authDomain:"kandupila-farm.firebaseapp.com",
+  projectId:"kandupila-farm",
+  storageBucket:"kandupila-farm.firebasestorage.app",
+  messagingSenderId:"877394060915",
+  appId:"1:877394060915:web:76539f7c12b644295aac06"
+};
+const app=initializeApp(cfg);
+const auth=getAuth(app);
+const db=initializeFirestore(app,{localCache:persistentLocalCache({})});
+const MAX_DEVICES=3;
+const $=id=>document.getElementById(id), A=$("app");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money=n=>"TSh "+Math.round(n).toLocaleString();
+let ents=[],recs=[],tab="home",blockMsg="";
+let devId=localStorage.getItem("devId");
+if(!devId){devId=crypto.randomUUID();localStorage.setItem("devId",devId)}
+
+async function checkDevice(){
+  try{
+    const ref=doc(db,"devices",devId);
+    if((await getDoc(ref)).exists()){localStorage.setItem("devOk","1");return true}
+    const all=await getDocs(collection(db,"devices"));
+    if(all.size>=MAX_DEVICES)return false;
+    await setDoc(ref,{name:navigator.userAgent.slice(0,60),added:Date.now()});
+    localStorage.setItem("devOk","1");return true;
+  }catch(e){return localStorage.getItem("devOk")==="1"}
+}
+async function load(){
+  ents=(await getDocs(collection(db,"enterprises"))).docs.map(d=>({id:d.id,...d.data()}));
+  recs=(await getDocs(collection(db,"records"))).docs.map(d=>({id:d.id,...d.data()}));
+}
+const tot=l=>{let c=0,s=0;l.forEach(r=>{if(r.kind==="cost")c+=r.amount;if(r.kind==="sale")s+=r.amount});return{c,s,p:s-c}};
+
+function loginView(msg=""){
+  $("nav").classList.add("hide");
+  A.innerHTML=`<div class="card"><h3>Sign in</h3><input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password"><button id="go">Sign in</button><p class="neg">${msg}</p></div>`;
+  $("go").onclick=async()=>{try{await signInWithEmailAndPassword(auth,$("em").value.trim(),$("pw").value)}catch(e){loginView("Wrong email or password")}};
+}
+onAuthStateChanged(auth,async u=>{
+  if(!u){loginView(blockMsg);blockMsg="";return}
+  if(!(await checkDevice())){blockMsg="This device is not registered.";signOut(auth);return}
+  try{await load()}catch(e){}
+  $("nav").classList.remove("hide");render();
+});
+
+function render(){
+  document.querySelectorAll("#nav button[data-t]").forEach(b=>b.classList.toggle("on",b.dataset.t===tab));
+  if(tab==="home")home();else if(tab==="farm")farm();else add();
+}
+function home(){
+  const t=tot(recs);
+  const rows=ents.map(e=>{const x=tot(recs.filter(r=>r.entId===e.id));
+    return `<div class="row"><span>${e.type==="Crop"?"🌱":"🐄"} ${esc(e.name)} <small>${esc(e.detail||"")}</small></span><b class="${x.p<0?"neg":"pos"}">${money(x.p)}</b></div>`}).join("")||"<small>Add your first crop or livestock in the Farm tab.</small>";
+  const last=[...recs].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,10).map(r=>{
+    const e=ents.find(x=>x.id===r.entId);
+    return `<div class="row"><small>${r.date||""} · ${esc(e?e.name:"?")} · ${esc(r.label)}</small><span class="${r.kind==="sale"?"pos":r.kind==="cost"?"neg":""}">${r.kind==="event"?"event":money(r.amount)} <span class="x" data-del="${r.id}">✕</span></span></div>`}).join("")||"<small>No records yet.</small>";
+  A.innerHTML=`<div class="card"><small>Farm profit</small><div class="big ${t.p<0?"neg":"pos"}">${money(t.p)}</div><small>Sales ${money(t.s)} · Costs ${money(t.c)}</small></div>
+  <div class="card"><b>By crop / livestock</b>${rows}</div><div class="card"><b>Recent records</b>${last}</div>`;
+}
+function farm(){
+  const list=ents.map(e=>`<div class="row"><span>${e.type==="Crop"?"🌱":"🐄"} ${esc(e.name)}</span><small>${esc(e.detail||"")}</small></div>`).join("")||"<small>Nothing added yet.</small>";
+  A.innerHTML=`<div class="card"><b>Add crop or livestock</b>
+  <select id="ty"><option>Crop</option><option>Livestock</option></select>
+  <input id="nm" placeholder="Name (e.g. Maize, Dairy cows)">
+  <input id="dt" placeholder="Area (acres) or number of animals">
+  <button id="sv">Save</button></div><div class="card"><b>Your farm</b>${list}</div>`;
+  $("sv").onclick=()=>{
+    const n=$("nm").value.trim();if(!n)return alert("Write a name");
+    const ref=doc(collection(db,"enterprises"));
+    const e={type:$("ty").value,name:n,detail:$("dt").value.trim()};
+    setDoc(ref,e);ents.push({id:ref.id,...e});farm();
+  };
+}
+function add(){
+  if(!ents.length){A.innerHTML=`<div class="card">Add a crop or livestock in the Farm tab first.</div>`;return}
+  A.innerHTML=`<div class="card"><b>New record</b>
+  <select id="e">${ents.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select>
+  <select id="k"><option value="cost">Cost (seed, feed, labour...)</option><option value="sale">Sale / harvest income</option><option value="event">Event (planting, vaccination...)</option></select>
+  <input id="l" placeholder="What? (e.g. Fertilizer, Milk sold)">
+  <input id="a" type="number" inputmode="decimal" placeholder="Amount in TSh (0 for events)">
+  <input id="d" type="date" value="${new Date().toISOString().slice(0,10)}">
+  <button id="sv">Save</button></div>`;
+  $("sv").onclick=()=>{
+    const r={entId:$("e").value,kind:$("k").value,label:$("l").value.trim(),amount:+$("a").value||0,date:$("d").value};
+    if(!r.label)return alert("Write what it is");
+    const ref=doc(collection(db,"records"));
+    setDoc(ref,r);recs.push({id:ref.id,...r});tab="home";render();
+  };
+}
+A.onclick=e=>{const id=e.target.dataset.del;
+  if(id&&confirm("Delete this record?")){deleteDoc(doc(db,"records",id));recs=recs.filter(r=>r.id!==id);render()}};
+document.querySelectorAll("#nav button[data-t]").forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+$("out").onclick=()=>signOut(auth);
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js");
+</script></body></html>
