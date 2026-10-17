@@ -16,6 +16,7 @@ h3{margin:0 0 8px;font-size:1.15rem}
 label{display:block;font-weight:600;margin:14px 0 5px}
 input,select{width:100%;box-sizing:border-box;padding:14px;font-size:1.05rem;border:2px solid #cfd8cc;border-radius:12px;background:#fff;color:#222}
 .pri{width:100%;padding:16px;margin-top:18px;font-size:1.1rem;font-weight:700;background:var(--g);color:#fff;border:0;border-radius:12px}
+.sec{width:100%;padding:14px;margin-top:10px;font-size:1.05rem;font-weight:600;background:#fff;color:#444;border:2px solid #cfd8cc;border-radius:12px}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ccc;padding-bottom:env(safe-area-inset-bottom)}
 nav button{flex:1;background:none;border:0;padding:10px 2px;font-size:.85rem;color:#555;display:flex;flex-direction:column;align-items:center;gap:2px}
 nav button span{font-size:1.6rem}
@@ -32,9 +33,11 @@ nav button.on{color:var(--g);font-weight:700}
 .seg{display:flex;gap:8px}
 .seg button{flex:1;padding:14px 4px;border:2px solid #cfd8cc;background:#fff;border-radius:12px;font-size:1rem;font-weight:600;color:#333}
 .seg button.on{background:var(--g);color:#fff;border-color:var(--g)}
+.two{display:flex;gap:10px}.two>div{flex:1}
 .pos{color:#2e7d32}.neg{color:#c62828}.hide{display:none}
 .x{background:none;border:0;color:#c62828;font-size:1.3rem;padding:6px 10px}
 .err{color:#c62828;font-weight:600}
+.tap{flex:1;min-width:0}
 </style></head><body>
 <header>🌾 Farm Manager</header>
 <main id="app"></main>
@@ -64,7 +67,7 @@ const MAX_DEVICES=3;
 const $=id=>document.getElementById(id),A=$("app");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const money=n=>"TSh "+Math.round(n).toLocaleString();
-let ents=[],recs=[],tab="home",kind="cost",blockMsg="";
+let ents=[],recs=[],tab="home",kind="cost",editId=null,blockMsg="";
 let devId=localStorage.getItem("devId");
 if(!devId){devId=crypto.randomUUID();localStorage.setItem("devId",devId)}
 
@@ -83,6 +86,8 @@ async function load(){
   recs=(await getDocs(collection(db,"records"))).docs.map(d=>({id:d.id,...d.data()}));
 }
 const tot=l=>{let c=0,s=0;l.forEach(r=>{if(r.kind==="cost")c+=r.amount;if(r.kind==="sale")s+=r.amount});return{c,s,p:s-c}};
+const outSum=l=>{const m={};l.forEach(r=>{if(r.kind==="sale"&&r.qty&&r.unit){const u=r.unit.trim().toLowerCase();m[u]=(m[u]||0)+r.qty}});
+  return Object.entries(m).map(([u,q])=>`${+q.toFixed(2)} ${esc(u)}`).join(", ")};
 const icon=e=>e.type==="Crop"?"🌱":"🐄";
 
 function loginView(msg=""){
@@ -107,18 +112,19 @@ function render(){
 }
 function home(){
   const t=tot(recs);
-  const rows=ents.map(e=>{const x=tot(recs.filter(r=>r.entId===e.id));
-    return `<div class="row"><div><b>${icon(e)} ${esc(e.name)}</b><div class="sub">${esc(e.detail||"")}</div></div><b class="${x.p<0?"neg":"pos"}">${money(x.p)}</b></div>`}).join("")||`<p class="sub">Add your first crop or livestock in the Farm tab.</p>`;
+  const rows=ents.map(e=>{const l=recs.filter(r=>r.entId===e.id),x=tot(l),o=outSum(l);
+    return `<div class="row"><div><b>${icon(e)} ${esc(e.name)}</b><div class="sub">${esc(e.detail||"")}${o?` · Sold: ${o}`:""}</div></div><b class="${x.p<0?"neg":"pos"}">${money(x.p)}</b></div>`}).join("")||`<p class="sub">Add your first crop or livestock in the Farm tab.</p>`;
   const last=[...recs].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,10).map(r=>{
     const e=ents.find(x=>x.id===r.entId);
     const amt=r.kind==="event"?"📌 Event":(r.kind==="sale"?"+ ":"− ")+money(r.amount);
-    return `<div class="row"><div><b>${esc(r.label)}</b><div class="sub">${r.date||""} · ${esc(e?e.name:"?")}</div></div><div><b class="${r.kind==="sale"?"pos":r.kind==="cost"?"neg":""}">${amt}</b><button class="x" data-del="${r.id}">✕</button></div></div>`}).join("")||`<p class="sub">No records yet.</p>`;
+    const q=r.qty?` · ${r.qty} ${esc(r.unit||"")}`:"";
+    return `<div class="row"><div class="tap" data-edit="${r.id}"><b>${esc(r.label)}</b><div class="sub">${r.date||""} · ${esc(e?e.name:"?")}${q}</div></div><div><b class="${r.kind==="sale"?"pos":r.kind==="cost"?"neg":""}">${amt}</b><button class="x" data-del="${r.id}">✕</button></div></div>`}).join("")||`<p class="sub">No records yet.</p>`;
   A.innerHTML=`<div class="stats">
   <div class="stat profit ${t.p<0?"neg":""}"><small>Farm profit</small><b>${money(t.p)}</b></div>
   <div class="stat sales"><small>Sales</small><b>${money(t.s)}</b></div>
   <div class="stat costs"><small>Costs</small><b>${money(t.c)}</b></div></div>
   <div class="card"><h3>Crops &amp; livestock</h3>${rows}</div>
-  <div class="card"><h3>Recent records</h3>${last}</div>`;
+  <div class="card"><h3>Recent records</h3><p class="sub">Tap a record to edit it.</p>${last}</div>`;
 }
 function farm(){
   const list=ents.map(e=>`<div class="row"><b>${icon(e)} ${esc(e.name)}</b><span class="sub">${esc(e.detail||"")}</span></div>`).join("")||`<p class="sub">Nothing added yet.</p>`;
@@ -137,26 +143,39 @@ function farm(){
 }
 function add(){
   if(!ents.length){A.innerHTML=`<div class="card"><h3>Start here</h3><p>Add a crop or livestock in the Farm tab first.</p></div>`;return}
+  const r=editId?recs.find(x=>x.id===editId):null;
+  if(r)kind=r.kind;
+  const v=(k,d="")=>r&&r[k]!==undefined&&r[k]!==0?r[k]:d;
   const K=[["cost","💸 Cost"],["sale","💰 Sale"],["event","📌 Event"]];
-  A.innerHTML=`<div class="card"><h3>New record</h3>
-  <label>For which crop / livestock?</label><select id="e">${ents.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select>
+  A.innerHTML=`<div class="card"><h3>${r?"Edit record":"New record"}</h3>
+  <label>For which crop / livestock?</label><select id="e">${ents.map(e=>`<option value="${e.id}" ${r&&r.entId===e.id?"selected":""}>${esc(e.name)}</option>`).join("")}</select>
   <label>What kind?</label><div class="seg" id="seg">${K.map(k=>`<button data-k="${k[0]}" class="${k[0]===kind?"on":""}">${k[1]}</button>`).join("")}</div>
-  <label>Details</label><input id="l" placeholder="e.g. Fertilizer, Milk sold, Vaccination">
-  <label>Amount (TSh, 0 for events)</label><input id="a" type="number" inputmode="decimal">
-  <label>Date</label><input id="d" type="date" value="${new Date().toISOString().slice(0,10)}">
-  <button class="pri" id="sv">Save record</button></div>`;
+  <label>Details</label><input id="l" value="${r?esc(r.label):""}" placeholder="e.g. Fertilizer, Milk sold, Vaccination">
+  <label>Amount (TSh, 0 for events)</label><input id="a" type="number" inputmode="decimal" value="${v("amount")}">
+  <div class="two"><div><label>Quantity (optional)</label><input id="q" type="number" inputmode="decimal" value="${v("qty")}"></div>
+  <div><label>Unit</label><input id="u" list="ul" value="${esc(v("unit"))}" placeholder="kg, litres..."></div></div>
+  <datalist id="ul"><option>kg</option><option>litres</option><option>bags</option><option>eggs</option><option>trays</option><option>bunches</option><option>animals</option><option>pieces</option></datalist>
+  <label>Date</label><input id="d" type="date" value="${r?r.date||"":new Date().toISOString().slice(0,10)}">
+  <button class="pri" id="sv">${r?"Update record":"Save record"}</button>
+  ${r?`<button class="sec" id="cn">Cancel</button>`:""}</div>`;
   $("seg").onclick=e=>{const k=e.target.dataset.k;if(!k)return;kind=k;
     document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.k===k))};
+  if(r)$("cn").onclick=()=>{editId=null;tab="home";render()};
   $("sv").onclick=()=>{
-    const r={entId:$("e").value,kind,label:$("l").value.trim(),amount:+$("a").value||0,date:$("d").value};
-    if(!r.label)return alert("Write the details");
-    const ref=doc(collection(db,"records"));
-    setDoc(ref,r);recs.push({id:ref.id,...r});tab="home";render();
+    const d={entId:$("e").value,kind,label:$("l").value.trim(),amount:+$("a").value||0,qty:+$("q").value||0,unit:$("u").value.trim(),date:$("d").value};
+    if(!d.label)return alert("Write the details");
+    if(editId){setDoc(doc(db,"records",editId),d);recs=recs.map(x=>x.id===editId?{id:editId,...d}:x)}
+    else{const ref=doc(collection(db,"records"));setDoc(ref,d);recs.push({id:ref.id,...d})}
+    editId=null;tab="home";render();
   };
 }
-A.onclick=e=>{const b=e.target.closest("[data-del]");if(!b)return;const id=b.dataset.del;
-  if(confirm("Delete this record?")){deleteDoc(doc(db,"records",id));recs=recs.filter(r=>r.id!==id);render()}};
-document.querySelectorAll("#nav button[data-t]").forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()});
+A.onclick=e=>{
+  const b=e.target.closest("[data-del]");
+  if(b){if(confirm("Delete this record?")){deleteDoc(doc(db,"records",b.dataset.del));recs=recs.filter(r=>r.id!==b.dataset.del);render()}return}
+  const t=e.target.closest("[data-edit]");
+  if(t){editId=t.dataset.edit;tab="add";render()}
+};
+document.querySelectorAll("#nav button[data-t]").forEach(b=>b.onclick=()=>{tab=b.dataset.t;if(tab==="add")editId=null;render()});
 $("out").onclick=()=>signOut(auth);
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js");
 </script></body></html>
