@@ -12,11 +12,13 @@ body{margin:0;font-family:system-ui,-apple-system,Roboto,sans-serif;background:v
 header{position:sticky;top:0;z-index:5;background:var(--g);color:#fff;padding:16px;font-size:1.3rem;font-weight:700}
 main{padding:14px;max-width:640px;margin:0 auto}
 .card{background:#fff;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 6px #0002}
+.rem{border-left:6px solid #ef6c00}
 h3{margin:0 0 8px;font-size:1.15rem}
 label{display:block;font-weight:600;margin:14px 0 5px}
 input,select{width:100%;box-sizing:border-box;padding:14px;font-size:1.05rem;border:2px solid #cfd8cc;border-radius:12px;background:#fff;color:#222}
 .pri{width:100%;padding:16px;margin-top:18px;font-size:1.1rem;font-weight:700;background:var(--g);color:#fff;border:0;border-radius:12px}
 .sec{width:100%;padding:14px;margin-top:10px;font-size:1.05rem;font-weight:600;background:#fff;color:#444;border:2px solid #cfd8cc;border-radius:12px}
+.done{padding:10px 14px;border:0;border-radius:10px;background:var(--g);color:#fff;font-weight:700;font-size:.95rem}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #ccc;padding-bottom:env(safe-area-inset-bottom)}
 nav button{flex:1;background:none;border:0;padding:10px 2px;font-size:.85rem;color:#555;display:flex;flex-direction:column;align-items:center;gap:2px}
 nav button span{font-size:1.6rem}
@@ -51,7 +53,7 @@ nav button.on{color:var(--g);font-weight:700}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {initializeFirestore,persistentLocalCache,collection,doc,getDoc,setDoc,getDocs,deleteDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {initializeFirestore,persistentLocalCache,collection,doc,getDoc,setDoc,updateDoc,getDocs,deleteDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const cfg={
   apiKey:"AIzaSyCfTYGe8FCBcHpoTV9rb0s_mBAX_nUz-qE",
@@ -68,6 +70,8 @@ const MAX_DEVICES=3;
 const $=id=>document.getElementById(id),A=$("app");
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const money=n=>"TSh "+Math.round(n).toLocaleString();
+const todayStr=()=>{const x=new Date();return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
+const dayDiff=d=>Math.round((new Date(d+"T00:00:00")-new Date(todayStr()+"T00:00:00"))/864e5);
 let ents=[],recs=[],tab="home",kind="cost",editId=null,blockMsg="",fMonth="all",fEnt="all";
 let devId=localStorage.getItem("devId");
 if(!devId){devId=crypto.randomUUID();localStorage.setItem("devId",devId)}
@@ -120,6 +124,11 @@ function home(){
   if(fEnt!=="all"&&!ents.some(e=>e.id===fEnt))fEnt="all";
   const fr=recs.filter(r=>inMonth(r)&&(fEnt==="all"||r.entId===fEnt));
   const t=tot(fr);
+  const pend=recs.filter(r=>r.remind&&!r.done).sort((a,b)=>a.remind.localeCompare(b.remind));
+  const remHtml=pend.length?`<div class="card rem"><h3>⏰ Reminders</h3>${pend.map(r=>{
+    const e=ents.find(x=>x.id===r.entId),n=dayDiff(r.remind);
+    const when=n<0?`Overdue by ${-n} day${-n>1?"s":""}`:n===0?"Today":n===1?"Tomorrow":`In ${n} days`;
+    return `<div class="row"><div class="tap" data-edit="${r.id}"><b>${esc(r.label)}</b><div class="sub ${n<0?"neg":""}">${when} · ${esc(e?e.name:"?")}</div></div><button class="done" data-done="${r.id}">Done ✓</button></div>`}).join("")}</div>`:"";
   const rows=ents.filter(e=>fEnt==="all"||e.id===fEnt).map(e=>{
     const l=recs.filter(r=>r.entId===e.id&&inMonth(r)),x=tot(l),o=outSum(l);
     return `<div class="row"><div><b>${icon(e)} ${esc(e.name)}</b><div class="sub">${esc(e.detail||"")}${o?` · Sold: ${o}`:""}</div></div><b class="${x.p<0?"neg":"pos"}">${money(x.p)}</b></div>`}).join("")||`<p class="sub">Add your first crop or livestock in the Farm tab.</p>`;
@@ -128,7 +137,7 @@ function home(){
     const amt=r.kind==="event"?"📌 Event":(r.kind==="sale"?"+ ":"− ")+money(r.amount);
     const q=r.qty?` · ${r.qty} ${esc(r.unit||"")}`:"";
     return `<div class="row"><div class="tap" data-edit="${r.id}"><b>${esc(r.label)}</b><div class="sub">${r.date||""} · ${esc(e?e.name:"?")}${q}</div></div><div><b class="${r.kind==="sale"?"pos":r.kind==="cost"?"neg":""}">${amt}</b><button class="x" data-del="${r.id}">✕</button></div></div>`}).join("")||`<p class="sub">No records for this filter.</p>`;
-  A.innerHTML=`<div class="card filt"><div class="two">
+  A.innerHTML=`${remHtml}<div class="card filt"><div class="two">
   <div><label>Month</label><select id="fm"><option value="all">All time</option>${months.map(m=>`<option value="${m}" ${m===fMonth?"selected":""}>${monthLabel(m)}</option>`).join("")}</select></div>
   <div><label>Crop / livestock</label><select id="fe"><option value="all">All</option>${ents.map(e=>`<option value="${e.id}" ${e.id===fEnt?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div>
   </div></div>
@@ -168,14 +177,16 @@ function add(){
   <div class="two"><div><label>Quantity (optional)</label><input id="q" type="number" inputmode="decimal" value="${v("qty")}"></div>
   <div><label>Unit</label><input id="u" list="ul" value="${esc(v("unit"))}" placeholder="kg, litres..."></div></div>
   <datalist id="ul"><option>kg</option><option>litres</option><option>bags</option><option>eggs</option><option>trays</option><option>bunches</option><option>animals</option><option>pieces</option></datalist>
-  <label>Date</label><input id="d" type="date" value="${r?r.date||"":new Date().toISOString().slice(0,10)}">
+  <label>Date</label><input id="d" type="date" value="${r?r.date||"":todayStr()}">
+  <label>⏰ Remind me on (optional)</label><input id="rd" type="date" value="${r&&r.remind?r.remind:""}">
   <button class="pri" id="sv">${r?"Update record":"Save record"}</button>
   ${r?`<button class="sec" id="cn">Cancel</button>`:""}</div>`;
   $("seg").onclick=e=>{const k=e.target.dataset.k;if(!k)return;kind=k;
     document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.k===k))};
   if(r)$("cn").onclick=()=>{editId=null;tab="home";render()};
   $("sv").onclick=()=>{
-    const d={entId:$("e").value,kind,label:$("l").value.trim(),amount:+$("a").value||0,qty:+$("q").value||0,unit:$("u").value.trim(),date:$("d").value};
+    const remind=$("rd").value;
+    const d={entId:$("e").value,kind,label:$("l").value.trim(),amount:+$("a").value||0,qty:+$("q").value||0,unit:$("u").value.trim(),date:$("d").value,remind,done:r&&r.remind===remind?!!r.done:false};
     if(!d.label)return alert("Write the details");
     if(editId){setDoc(doc(db,"records",editId),d);recs=recs.map(x=>x.id===editId?{id:editId,...d}:x)}
     else{const ref=doc(collection(db,"records"));setDoc(ref,d);recs.push({id:ref.id,...d})}
@@ -189,6 +200,8 @@ A.onchange=e=>{
 A.onclick=e=>{
   const b=e.target.closest("[data-del]");
   if(b){if(confirm("Delete this record?")){deleteDoc(doc(db,"records",b.dataset.del));recs=recs.filter(r=>r.id!==b.dataset.del);render()}return}
+  const dn=e.target.closest("[data-done]");
+  if(dn){const id=dn.dataset.done;updateDoc(doc(db,"records",id),{done:true});recs=recs.map(r=>r.id===id?{...r,done:true}:r);render();return}
   const t=e.target.closest("[data-edit]");
   if(t){editId=t.dataset.edit;tab="add";render()}
 };
